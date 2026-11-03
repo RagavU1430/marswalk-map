@@ -153,7 +153,7 @@ export function calculateRoute(
     // Explore neighbors
     for (const [dLat, dLon] of directions) {
       const neighborLat = current.lat + dLat * resolution
-      const neighborLon = currentLon + dLon * resolution
+      const neighborLon = current.lon + dLon * resolution
       const neighborKey = `${neighborLat},${neighborLon}`
 
       if (closedSet.has(neighborKey)) continue
