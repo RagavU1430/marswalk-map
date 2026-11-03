@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Mars-themed styles */
+@layer base {
+  body {
+    @apply bg-opace text-mars-surface antialiased;
+  }
+}
+
+@layer utilities {
+  .hud-panel {
+    @apply bg-mars-shadow/80 backdrop-blur-sm border border-mars-dust/30 rounded-xl p-4;
+  }
+
+  .layer-toggle {
+    @apply hover:bg-mars-surface/10 transition-colors duration-200;
+  }
+
+  .danger-zone {
+    @apply text-radiation-high animate-pulse-red;
+  }
+}
