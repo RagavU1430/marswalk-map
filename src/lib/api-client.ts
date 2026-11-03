@@ -20,7 +20,7 @@ export const USGS_API_BASE = 'https://PlanetaryAtlas.usgs.gov/api'
 export const MARS_DATASETS = {
   TERRAIN: 'mars-terrain-30m', // 30m DEM
   CTX: 'mars-ctx-6m', // Context imagery
-  HiRISE: 'mars-hirisde-30cm', // HiRISE tiles
+  HiRISE: 'mars-hi-rise-30cm', // HiRISE tiles
   Viking: 'mars-viking-orbital', // Global mosaic
 }
 
