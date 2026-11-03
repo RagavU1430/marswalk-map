@@ -17,11 +17,26 @@ interface Waypoint {
   lat: number
   lon: number
   elevation?: number
+  hazard?: {
+    slope?: number
+    radiation?: number
+    rock?: number
+  }
+}
+
+interface Route {
+  id: string
+  name: string
+  waypoints: Waypoint[]
+  distance: number
+  createdAt: Date
 }
 
 interface MapState {
   layers: MapLayerConfig
   waypoints: Waypoint[]
+  routes: Route[]
+  selectedRoute: string | null
   selectedSite: string | null
 
   // Actions
@@ -31,7 +46,11 @@ interface MapState {
   addWaypoint: (waypoint: Waypoint) => void
   removeWaypoint: (id: string) => void
   clearWaypoints: () => void
+  addRoute: (route: Route) => void
+  removeRoute: (id: string) => void
+  clearRoutes: () => void
   selectSite: (siteId: string) => void
+  selectRoute: (routeId: string) => void
 }
 
 const defaultLayers: MapLayerConfig = {
@@ -81,6 +100,8 @@ const defaultLayers: MapLayerConfig = {
 export const useMapStore = create<MapState>()((set) => ({
   layers: defaultLayers,
   waypoints: [],
+  routes: [],
+  selectedRoute: null,
   selectedSite: null,
 
   toggleLayer: (layerId) =>
@@ -109,6 +130,8 @@ export const useMapStore = create<MapState>()((set) => ({
 
   selectSite: (siteId) => set({ selectedSite: siteId }),
 
+  selectRoute: (routeId) => set({ selectedRoute: routeId }),
+
   addWaypoint: (waypoint) =>
     set((state) => ({
       waypoints: [...state.waypoints, waypoint],
@@ -120,4 +143,16 @@ export const useMapStore = create<MapState>()((set) => ({
     })),
 
   clearWaypoints: () => set({ waypoints: [] }),
+
+  addRoute: (route) =>
+    set((state) => ({
+      routes: [...state.routes, route],
+    })),
+
+  removeRoute: (id) =>
+    set((state) => ({
+      routes: state.routes.filter((r) => r.id !== id),
+    })),
+
+  clearRoutes: () => set({ routes: [] }),
 }))

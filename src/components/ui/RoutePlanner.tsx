@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useMapStore } from '@/stores/map-store'
-import { calculateRoute } from '@/lib/pathfinding'
+import { calculateRoute, calculateTotalDistance } from '@/lib/pathfinding'
 
 interface RoutePlannerProps {
   hudMode?: boolean
@@ -13,10 +13,39 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({ hudMode = false }) =
     { lat: number; lon: number; distance: number }[]
   >([])
 
+  const { addRoute, clearWaypoints, clearRoutes } = useMapStore()
+
   const handleCalculateRoute = () => {
     if (start && end) {
       const calculatedRoute = calculateRoute(start, end)
       setRoute(calculatedRoute)
+
+      // Create route ID and name
+      const routeId = `route-${Date.now()}`
+      const routeName = `Route from (${start.lat.toFixed(2)}, ${start.lon.toFixed(2)}) to (${end.lat.toFixed(2)}, ${end.lon.toFixed(2)})`
+
+      // Create waypoints with hazard data
+      const waypoints = calculatedRoute.map((wp, index) => ({
+        id: `wp-${routeId}-${index}`,
+        name: index === 0 ? 'Start' : index === calculatedRoute.length - 1 ? 'End' : `WP${index}`,
+        lat: wp.lat,
+        lon: wp.lon,
+        distance: wp.distance,
+        hazard: {
+          slope: Math.sin((wp.lat + wp.lon) * 0.02) * 10 + 15,
+          radiation: Math.abs(Math.cos(wp.lat * 0.1) * 0.3 + 0.2),
+          rock: Math.abs(Math.sin(wp.lon * 0.05) * 0.4 + 0.3),
+        },
+      }))
+
+      // Dispatch route to store
+      addRoute({
+        id: routeId,
+        name: routeName,
+        waypoints,
+        distance: calculateTotalDistance(waypoints as any),
+        createdAt: new Date(),
+      })
     }
   }
 
@@ -24,6 +53,8 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({ hudMode = false }) =
     setRoute([])
     setStart(null)
     setEnd(null)
+    clearWaypoints()
+    clearRoutes()
   }
 
   const formatDistance = (meters: number) => {

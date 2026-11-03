@@ -151,7 +151,7 @@ export async function fetchRoverTracks(
 ): Promise<Array<{ lat: number; lon: number; timestamp: string; activity: string }>> {
   // Mock data - real implementation would fetch from:
   // https://mars.nasa.gov/msl/mission/traverse/
-  // https://mars.nasa.govMars2020/mission/traverse/
+  // https://mars.nasa.gov/msl/mission/traverse/
   return [
     { lat: 18.3905, lon: -77.5306, timestamp: '2021-02-18', activity: 'landing' },
     { lat: 18.45, lon: -77.6, timestamp: '2021-03-01', activity: 'drive' },

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { MarsGlobe } from './components/map/MarsGlobe'
 import { LayerManager } from './components/ui/LayerManager'
 import { RoutePlanner } from './components/ui/RoutePlanner'
+import { RouteSelector } from './components/ui/RouteSelector'
 import { ModeSelector } from './components/ui/ModeSelector'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -34,6 +35,7 @@ function App() {
               <div className="w-full md:w-96 flex flex-col gap-4 overflow-y-auto">
                 <LayerManager />
                 <RoutePlanner />
+                <RouteSelector />
               </div>
             </div>
           )}

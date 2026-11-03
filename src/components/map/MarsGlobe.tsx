@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as Cesium from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
+import { useMapStore } from '@/stores/map-store'
 
-// Cesium default CSS for full-screen
+// Cesium CSS loader
 let cesiumCssLoaded = false
 
 const loadCesiumCss = () => {
@@ -11,7 +12,7 @@ const loadCesiumCss = () => {
 
   const cesiumCssLink = document.createElement('link')
   cesiumCssLink.rel = 'stylesheet'
-  cesiumCssLink.href = 'https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css'
+  cesiumCssLink.href = 'https://cesium.com/downloads/cesiumjs/releases/1.146/Build/Cesium/Widgets/widgets.css'
   document.head.appendChild(cesiumCssLink)
 }
 
@@ -19,6 +20,9 @@ export const MarsGlobe: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Cesium.Viewer | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Subscribe to store for routes and waypoints
+  const { routes, waypoints, selectedRoute } = useMapStore()
 
   useEffect(() => {
     // Load Cesium CSS
@@ -30,8 +34,6 @@ export const MarsGlobe: React.FC = () => {
     const cesiumToken = import.meta.env.VITE_CESIUM_ION_TOKEN || ''
 
     // Initialize Cesium Viewer
-    // Note: For Mars visualization, we use the Moon as a base and configure it for Mars-like appearance
-    // Full Mars terrain requires Cesium Ion Mars dataset
     const viewer = new Cesium.Viewer(containerRef.current, {
       baseLayerPicker: false,
       timeline: false,
@@ -52,21 +54,22 @@ export const MarsGlobe: React.FC = () => {
     })
 
     // Configure for Mars visualization
-    // Change the globe's ellipsoid to Mars (6,779.74 km radius)
+    // Mars ellipsoid: equatorial radius 3,396.19 km, polar radius 3,376.2 km
+    // Earth ellipsoid: equatorial 6,378.137 km, polar 6,356.752 km
     viewer.scene.ellipsoid = new Cesium.Ellipsoid(
-      3396.19 / 6378.137, // equatorial radius ratio (Mars radius / Earth radius)
+      3396.19 / 6378.137, // equatorial radius ratio
       3396.19 / 6378.137,
-      3376.2 / 6378.137 // polar radius ratio
+      3376.2 / 6378.137  // polar radius ratio
     )
 
     // Add Mars imagery from Cesium Ion if token is available
     if (cesiumToken) {
       Cesium.Ion.defaultAccessToken = cesiumToken
 
+      // Try to add Mars imagery using Ion asset
       try {
-        // Add Mars imagery (asset 6391738018388480 is a Mars dataset)
-        const marsImageryProvider = new Cesium.UrlTemplateImageryProvider({
-          url: `https://assets.ion.com/api/v1/tilesets/assets/6391738018388480/items/1/0/{z}/{y}/{x}/image?access_token=${cesiumToken}`,
+        const marsImageryProvider = new Cesium.IonImageryProvider({
+          assetId: 6391738018388480,
         })
         viewer.imageryLayers.addImageryProvider(marsImageryProvider)
       } catch (e) {
@@ -74,32 +77,147 @@ export const MarsGlobe: React.FC = () => {
       }
     }
 
-    // Add simple orange/red terrain material for Mars-like appearance
-    // This creates a basic Mars-like surface visualization
+    // Add visual styling for Mars surface when no imagery available
     viewer.scene.globe.tileCacheSize = 100
 
-    // Set initial view to center of Mars
-    // Mars coordinates: 0° N, 0° E
+    // Set initial view to center of Mars (Prime Meridian)
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(0.0, 0.0, 4000000.0),
+      destination: Cesium.Cartesian3.fromDegrees(0.0, 0.0, 3000000.0),
       orientation: {
         heading: Cesium.Math.toRadians(0.0),
-        pitch: Cesium.Math.toRadians(-0.5),
+        pitch: Cesium.Math.toRadians(-0.6),
         roll: 0.0,
       },
     })
 
     // Enable terrain exaggeration
-    viewer.scene.globe.verticalExaggeration = 1.25
+    viewer.scene.globe.verticalExaggeration = 1.1
 
     viewerRef.current = viewer
     setLoading(false)
 
     // Cleanup
     return () => {
-      viewer.destroy()
+      if (viewer) {
+        viewer.destroy()
+      }
     }
   }, [])
+
+  // Render routes on the globe
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+
+    // Get the current route if one is selected, or the last one
+    const targetRoute = selectedRoute
+      ? routes.find(r => r.id === selectedRoute)
+      : routes[routes.length - 1]
+
+    // Clear all existing route entities if no route to display
+    if (!targetRoute) {
+      viewer.entities.values.forEach(entity => {
+        if (entity.id?.startsWith('route-polyline-') ||
+            entity.id?.startsWith('waypoint-') ||
+            entity.id?.startsWith('label-') ||
+            entity.id?.startsWith('route-label-')) {
+          viewer.entities.remove(entity)
+        }
+      })
+      return
+    }
+
+    // Clear existing route entities for this route
+    viewer.entities.values.forEach(entity => {
+      if (entity.id?.startsWith(`route-polyline-${targetRoute.id}`) ||
+          entity.id?.startsWith(`waypoint-${targetRoute.id}`) ||
+          entity.id?.startsWith(`label-${targetRoute.id}`) ||
+          entity.id?.startsWith(`route-label-${targetRoute.id}`)) {
+        viewer.entities.remove(entity)
+      }
+    })
+
+    // Create route polyline entity
+    const positions = targetRoute.waypoints.map(wp =>
+      Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, 0)
+    )
+
+    // Add polyline for route
+    viewer.entities.add({
+      id: `route-polyline-${targetRoute.id}`,
+      polyline: {
+        positions,
+        width: 5,
+        material: new Cesium.Color(0.8, 0.52, 0.24, 0.9), // Mars gold/orange
+        clampToGround: true,
+      },
+    })
+
+    // Create waypoint markers
+    targetRoute.waypoints.forEach((wp, index) => {
+      const isStart = index === 0
+      const isEnd = index === targetRoute.waypoints.length - 1
+
+      // Determine marker color based on position
+      const color = isStart
+        ? Cesium.Color.fromCssColorString('#228B2F') // Green for start
+        : isEnd
+          ? Cesium.Color.fromCssColorString('#8B0000') // Dark red for end
+          : Cesium.Color.fromCssColorString('#DAA520') // Gold for intermediate
+
+      const labelText = isStart ? 'Start' : isEnd ? 'End' : ''
+
+      // Create waypoint point entity
+      viewer.entities.add({
+        id: `waypoint-${targetRoute.id}-${wp.id}`,
+        point: {
+          pixelSize: isStart || isEnd ? 12 : 8,
+          color: color.withAlpha(0.95),
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+        },
+        position: Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, 100),
+      })
+
+      // Add label for start and end points
+      if (isStart || isEnd) {
+        viewer.entities.add({
+          id: `label-${targetRoute.id}-${index}`,
+          position: Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, 150),
+          label: {
+            text: labelText,
+            font: '14px sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, -30),
+            disableDepthTest: true,
+          },
+        })
+      }
+    })
+
+    // Add route name label at center
+    const centerIdx = Math.floor(targetRoute.waypoints.length / 2)
+    const centerWp = targetRoute.waypoints[centerIdx]
+
+    viewer.entities.add({
+      id: `route-label-${targetRoute.id}`,
+      position: Cesium.Cartesian3.fromDegrees(centerWp.lon, centerWp.lat, 200),
+      label: {
+        text: targetRoute.name,
+        font: '14px sans-serif',
+        fillColor: Cesium.Color.fromCssColorString('#CD853F'),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cesium.Cartesian2(0, 50),
+        disableDepthTest: true,
+      },
+    })
+
+  }, [routes, selectedRoute])
 
   return (
     <div
