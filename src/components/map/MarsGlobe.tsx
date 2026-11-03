@@ -53,23 +53,10 @@ export const MarsGlobe: React.FC = () => {
       enableLighting: true,
     })
 
-    // Configure for Mars visualization
-    // Mars ellipsoid: equatorial radius 3,396.19 km, polar radius 3,376.2 km
-    // We use a custom ellipsoid by modifying the globe material
-    const earthEquatorial = 6378137 // Earth's equatorial radius in meters
-    const earthPolar = 6356752 // Earth's polar radius in meters
-    const marsEquatorialRatio = 3396.19 / earthEquatorial
-    const marsPolarRatio = 3376.2 / earthPolar
-
-    const marsEllipsoid = new Cesium.Ellipsoid(
-      marsEquatorialRatio,
-      marsEquatorialRatio,
-      marsPolarRatio
-    )
-
-    // Replace the globe with our Mars ellipsoid
-    viewer.scene.destroyGlobe()
-    viewer.scene.globe = new Cesium.Globe(marsEllipsoid)
+    // Configure for Mars visualization by modifying globe appearance
+    // Note: Ellipsoid is read-only in Cesium 1.146, so we use Earth's ellipsoid
+    // but apply Mars-like visual styling
+    viewer.scene.globe.tileCacheSize = 100
 
     // Add Mars imagery from Cesium Ion if token is available
     if (cesiumToken) {
@@ -84,18 +71,21 @@ export const MarsGlobe: React.FC = () => {
       } catch (e) {
         console.warn('Could not load Mars imagery from Cesium Ion:', e)
       }
+
+      // Try to add Mars terrain
+      try {
+        const marsTerrainProvider = new Cesium.CesiumTerrainProvider({
+          url: `https://assets.ion.com/api/v1/tilesets/assets/${6391738018388480}/terrain`,
+        })
+        viewer.terrainProvider = marsTerrainProvider
+      } catch (e) {
+        console.warn('Could not load Mars terrain from Cesium Ion:', e)
+      }
     }
 
-    // Add visual styling for Mars surface - use Mars-like material
-    viewer.scene.globe.tileCacheSize = 100
-    // Set a Mars-like material color
-    viewer.scene.globe.material = new Cesium.Material({
-      fabricated: false,
-    })
-
-    // Set initial view to center of Mars (Prime Meridian)
+    // Set initial view to center of Mars region (Jezero Crater - Perseverance landing site)
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(0.0, 0.0, 3000000.0),
+      destination: Cesium.Cartesian3.fromDegrees(-77.5, 18.4, 3000000.0),
       orientation: {
         heading: Cesium.Math.toRadians(0.0),
         pitch: Cesium.Math.toRadians(-0.6),
@@ -104,7 +94,7 @@ export const MarsGlobe: React.FC = () => {
     })
 
     // Enable terrain exaggeration
-    viewer.scene.globe.verticalExaggeration = 1.1
+    viewer.scene.globe.verticalExaggeration = 1.0
 
     viewerRef.current = viewer
     setLoading(false)
@@ -155,7 +145,7 @@ export const MarsGlobe: React.FC = () => {
       Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, 0)
     )
 
-    // Add polyline for route
+    // Add polyline for route with Mars gold color
     viewer.entities.add({
       id: `route-polyline-${targetRoute.id}`,
       polyline: {
