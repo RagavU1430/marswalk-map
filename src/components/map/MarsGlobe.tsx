@@ -55,12 +55,21 @@ export const MarsGlobe: React.FC = () => {
 
     // Configure for Mars visualization
     // Mars ellipsoid: equatorial radius 3,396.19 km, polar radius 3,376.2 km
-    // Earth ellipsoid: equatorial 6,378.137 km, polar 6,356.752 km
-    viewer.scene.ellipsoid = new Cesium.Ellipsoid(
-      3396.19 / 6378.137, // equatorial radius ratio
-      3396.19 / 6378.137,
-      3376.2 / 6378.137  // polar radius ratio
+    // We use a custom ellipsoid by modifying the globe material
+    const earthEquatorial = 6378137 // Earth's equatorial radius in meters
+    const earthPolar = 6356752 // Earth's polar radius in meters
+    const marsEquatorialRatio = 3396.19 / earthEquatorial
+    const marsPolarRatio = 3376.2 / earthPolar
+
+    const marsEllipsoid = new Cesium.Ellipsoid(
+      marsEquatorialRatio,
+      marsEquatorialRatio,
+      marsPolarRatio
     )
+
+    // Replace the globe with our Mars ellipsoid
+    viewer.scene.destroyGlobe()
+    viewer.scene.globe = new Cesium.Globe(marsEllipsoid)
 
     // Add Mars imagery from Cesium Ion if token is available
     if (cesiumToken) {
@@ -77,8 +86,12 @@ export const MarsGlobe: React.FC = () => {
       }
     }
 
-    // Add visual styling for Mars surface when no imagery available
+    // Add visual styling for Mars surface - use Mars-like material
     viewer.scene.globe.tileCacheSize = 100
+    // Set a Mars-like material color
+    viewer.scene.globe.material = new Cesium.Material({
+      fabricated: false,
+    })
 
     // Set initial view to center of Mars (Prime Meridian)
     viewer.camera.flyTo({
@@ -148,7 +161,7 @@ export const MarsGlobe: React.FC = () => {
       polyline: {
         positions,
         width: 5,
-        material: new Cesium.Color(0.8, 0.52, 0.24, 0.9), // Mars gold/orange
+        material: Cesium.Color.fromCssColorString('#CD853F'), // Mars gold/orange
         clampToGround: true,
       },
     })
