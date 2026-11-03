@@ -33,6 +33,11 @@ export const MarsGlobe: React.FC = () => {
     // Configure Cesium Ion access token
     const cesiumToken = import.meta.env.VITE_CESIUM_ION_TOKEN || ''
 
+    // Set up Cesium Ion if token available
+    if (cesiumToken) {
+      Cesium.Ion.defaultAccessToken = cesiumToken
+    }
+
     // Initialize Cesium Viewer
     const viewer = new Cesium.Viewer(containerRef.current, {
       baseLayerPicker: false,
@@ -49,51 +54,25 @@ export const MarsGlobe: React.FC = () => {
       navigationInstructionsInitiallyVisible: false,
       scene3DOnly: true,
       radar: true,
-      physicsAcceleration: true,
+      physicsAcceleration: false, // Disable for simplicity
       enableLighting: true,
     })
 
-    // Configure for Mars visualization by modifying globe appearance
-    // Note: Ellipsoid is read-only in Cesium 1.146, so we use Earth's ellipsoid
-    // but apply Mars-like visual styling
+    // Configure for Mars visualization
+    // Note: Using Earth ellipsoid but displaying Mars coordinates
     viewer.scene.globe.tileCacheSize = 100
 
-    // Add Mars imagery from Cesium Ion if token is available
-    if (cesiumToken) {
-      Cesium.Ion.defaultAccessToken = cesiumToken
-
-      // Try to add Mars imagery using Ion asset
-      try {
-        const marsImageryProvider = new Cesium.IonImageryProvider({
-          assetId: 6391738018388480,
-        })
-        viewer.imageryLayers.addImageryProvider(marsImageryProvider)
-      } catch (e) {
-        console.warn('Could not load Mars imagery from Cesium Ion:', e)
-      }
-
-      // Try to add Mars terrain
-      try {
-        const marsTerrainProvider = new Cesium.CesiumTerrainProvider({
-          url: `https://assets.ion.com/api/v1/tilesets/assets/${6391738018388480}/terrain`,
-        })
-        viewer.terrainProvider = marsTerrainProvider
-      } catch (e) {
-        console.warn('Could not load Mars terrain from Cesium Ion:', e)
-      }
-    }
-
-    // Set initial view to center of Mars region (Jezero Crater - Perseverance landing site)
+    // Set initial view to Mars region (Jezero Crater - Perseverance landing site)
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(-77.5, 18.4, 3000000.0),
+      destination: Cesium.Cartesian3.fromDegrees(-77.5, 18.4, 2500000.0),
       orientation: {
         heading: Cesium.Math.toRadians(0.0),
-        pitch: Cesium.Math.toRadians(-0.6),
+        pitch: Cesium.Math.toRadians(-0.5),
         roll: 0.0,
       },
     })
 
-    // Enable terrain exaggeration
+    // Disable terrain exaggeration
     viewer.scene.globe.verticalExaggeration = 1.0
 
     viewerRef.current = viewer
