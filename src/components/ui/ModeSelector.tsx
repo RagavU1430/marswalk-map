@@ -1,6 +1,6 @@
 import React from 'react'
 
-type Mode = 'globe' | 'tablet' | 'hud'
+export type Mode = 'globe' | 'tablet' | 'three' | 'hud'
 
 interface ModeSelectorProps {
   mode: Mode
@@ -9,25 +9,26 @@ interface ModeSelectorProps {
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, setMode }) => {
   const modes: { id: Mode; label: string; icon: string }[] = [
-    { id: 'globe', label: 'Globe View', icon: '🌍' },
     { id: 'tablet', label: 'Tablet Mode', icon: '📱' },
-    { id: 'hud', label: 'HUD Mode', icon: '🕶️' },
+    { id: 'three', label: '3D Walk (Three.js)', icon: '🚀' },
+    { id: 'globe', label: 'Globe View', icon: '🌍' },
+    { id: 'hud', label: 'HUD Visor', icon: '🕶️' },
   ]
 
   return (
-    <div className="flex gap-2 p-1 bg-mars-shadow/50 rounded-lg">
+    <div className="flex gap-1.5 p-1 bg-black/60 border border-mars-dust/20 rounded-xl">
       {modes.map(({ id, label, icon }) => (
         <button
           key={id}
           onClick={() => setMode(id)}
-          className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold font-mono transition-all flex items-center gap-1.5 ${
             mode === id
-              ? 'bg-mars-surface text-opace shadow-md'
-              : 'text-mars-dust hover:text-mars-surface'
+              ? 'bg-red-600 text-white shadow-lg shadow-red-900/40 ring-1 ring-red-400'
+              : 'text-mars-dust hover:text-mars-surface hover:bg-white/5'
           }`}
         >
-          <span className="mr-1">{icon}</span>
-          {label}
+          <span>{icon}</span>
+          <span>{label}</span>
         </button>
       ))}
     </div>

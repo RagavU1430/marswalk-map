@@ -1,10 +1,23 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
+import { viteStaticCopy } from 'vite-plugin-static-copy'
 
-// Cesium requires special handling for Web Workers
+const cesiumSource = 'node_modules/cesium/Build/Cesium'
+const cesiumBaseUrl = 'cesium'
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    viteStaticCopy({
+      targets: [
+        { src: `${cesiumSource}/ThirdParty`, dest: cesiumBaseUrl },
+        { src: `${cesiumSource}/Workers`, dest: cesiumBaseUrl },
+        { src: `${cesiumSource}/Assets`, dest: cesiumBaseUrl },
+        { src: `${cesiumSource}/Widgets`, dest: cesiumBaseUrl },
+      ],
+    }),
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -13,6 +26,18 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    proxy: {
+      '/trek-tiles': {
+        target: 'https://trek.nasa.gov',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/trek-tiles/, ''),
+        headers: {
+          Referer: 'https://trek.nasa.gov/',
+          Origin: 'https://trek.nasa.gov',
+        },
+      },
+    },
   },
   build: {
     outDir: 'dist',
@@ -26,15 +51,7 @@ export default defineConfig({
       },
     },
   },
-  optimizeDeps: {
-    include: ['cesium'],
-    exclude: [
-      'cesium/Source/Workers/createsVerticesFromHeightmap',
-      'cesium/Source/Workers/transferTypedArray',
-    ],
-  },
   define: {
-    // Prevent Cesium from using module workers that Vite doesn't handle well
-    CESIUM_BASE_URL: JSON.stringify(''),
+    CESIUM_BASE_URL: JSON.stringify(`/${cesiumBaseUrl}/`),
   },
 })

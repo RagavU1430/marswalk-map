@@ -8,7 +8,7 @@
  * - MAVEN radiation data
  */
 
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, useQuery } from '@tanstack/react-query'
 
 const queryClient = new QueryClient()
 
@@ -172,7 +172,7 @@ export async function fetchScientificPois(
   lon: number
   description: string
   dataSources: string[]
-}> {
+}>> {
   const pois = [
     {
       name: 'Mount Sharp (Aeolis Mons)',
@@ -202,7 +202,7 @@ export async function fetchScientificPois(
 
 // React Query hooks for data fetching
 export const useMarsTerrain = (siteId: MarsLandingSite, token: string) => {
-  return queryClient.useQuery({
+  return useQuery({
     queryKey: ['mars-terrain', siteId],
     queryFn: () => fetchMarsTerrain(siteId, token),
     enabled: !!token,
@@ -211,7 +211,7 @@ export const useMarsTerrain = (siteId: MarsLandingSite, token: string) => {
 }
 
 export const useRadiationData = (lat: number, lon: number) => {
-  return queryClient.useQuery({
+  return useQuery({
     queryKey: ['radiation', lat, lon],
     queryFn: () => fetchRadiationData(lat, lon),
     staleTime: 1000 * 60 * 10, // 10 minutes

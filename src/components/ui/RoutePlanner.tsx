@@ -1,158 +1,148 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useMapStore } from '@/stores/map-store'
-import { calculateRoute, calculateTotalDistance } from '@/lib/pathfinding'
+import { JEZERO_SCIENCE_STOPS } from '@/data/jezeroData'
 
 interface RoutePlannerProps {
   hudMode?: boolean
 }
 
 export const RoutePlanner: React.FC<RoutePlannerProps> = ({ hudMode = false }) => {
-  const [start, setStart] = useState<{ lat: number; lon: number } | null>(null)
-  const [end, setEnd] = useState<{ lat: number; lon: number } | null>(null)
-  const [route, setRoute] = useState<
-    { lat: number; lon: number; distance: number }[]
-  >([])
+  const {
+    plannedStops,
+    activeRouteResult,
+    selectedStop,
+    selectScienceStop,
+    removeScienceStop,
+    addScienceStop,
+    recalculateRoute,
+    isClickToAddWaypoint,
+    toggleClickToAddMode,
+  } = useMapStore()
 
-  const { addRoute, clearWaypoints, clearRoutes } = useMapStore()
-
-  const handleCalculateRoute = () => {
-    if (start && end) {
-      const calculatedRoute = calculateRoute(start, end)
-      setRoute(calculatedRoute)
-
-      // Create route ID and name
-      const routeId = `route-${Date.now()}`
-      const routeName = `Route from (${start.lat.toFixed(2)}, ${start.lon.toFixed(2)}) to (${end.lat.toFixed(2)}, ${end.lon.toFixed(2)})`
-
-      // Create waypoints with hazard data
-      const waypoints = calculatedRoute.map((wp, index) => ({
-        id: `wp-${routeId}-${index}`,
-        name: index === 0 ? 'Start' : index === calculatedRoute.length - 1 ? 'End' : `WP${index}`,
-        lat: wp.lat,
-        lon: wp.lon,
-        distance: wp.distance,
-        hazard: {
-          slope: Math.sin((wp.lat + wp.lon) * 0.02) * 10 + 15,
-          radiation: Math.abs(Math.cos(wp.lat * 0.1) * 0.3 + 0.2),
-          rock: Math.abs(Math.sin(wp.lon * 0.05) * 0.4 + 0.3),
-        },
-      }))
-
-      // Dispatch route to store
-      addRoute({
-        id: routeId,
-        name: routeName,
-        waypoints,
-        distance: calculateTotalDistance(waypoints as any),
-        createdAt: new Date(),
-      })
-    }
-  }
-
-  const clearRoute = () => {
-    setRoute([])
-    setStart(null)
-    setEnd(null)
-    clearWaypoints()
-    clearRoutes()
-  }
-
-  const formatDistance = (meters: number) => {
-    return `${Math.round(meters / 1000)} km`
-  }
-
-  // HUD mode styling
-  const hudClasses = hudMode
-    ? 'absolute bottom-4 left-4 right-4 pointer-events-auto select-none'
-    : ''
-
-  const backgroundClass = hudMode
-    ? 'bg-mars-shadow/80 backdrop-blur-sm border border-mars-dust/30'
-    : 'hud-panel'
+  const availableStopsToAdd = JEZERO_SCIENCE_STOPS.filter(
+    (cand) => !plannedStops.some((s) => s.id === cand.id)
+  )
 
   return (
-    <div className={`${backgroundClass} rounded-xl ${hudClasses}`}>
-      <h3 className="text-lg font-semibold mb-3 text-mars-surface">
-        Route Planner
-      </h3>
+    <div
+      className={`bg-mars-shadow/90 border border-mars-dust/30 rounded-xl p-4 shadow-xl backdrop-blur-md text-mars-surface space-y-3 ${
+        hudMode ? 'pointer-events-auto border-red-500/40' : ''
+      }`}
+    >
+      <div className="flex items-center justify-between border-b border-mars-dust/20 pb-2">
+        <div>
+          <h3 className="text-sm font-bold uppercase tracking-wider text-mars-dust">
+            🧭 EVA Waypoint Sequence & Router
+          </h3>
+          <span className="text-[11px] text-gray-400">
+            {plannedStops.length} stops planned · Loop Traverse
+          </span>
+        </div>
 
-      {route.length === 0 && (
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm text-mars-dust block mb-1">Start (Lat, Lon)</label>
-            <input
-              type="text"
-              placeholder="18.4, 77.5"
-              className="w-full px-3 py-2 bg-opace border border-mars-dust/30 rounded text-mars-surface placeholder-mars-dust"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const [lat, lon] = (e.target as HTMLInputElement).value.split(',').map(Number)
-                  if (lat && lon) setStart({ lat, lon })
-                }
-              }}
-            />
-          </div>
+        <button
+          onClick={toggleClickToAddMode}
+          className={`text-xs px-2.5 py-1 rounded-md border font-medium transition ${
+            isClickToAddWaypoint
+              ? 'bg-red-600 text-white border-red-400 shadow-md animate-pulse'
+              : 'bg-black/40 border-mars-dust/30 text-mars-surface hover:border-mars-dust/60'
+          }`}
+        >
+          {isClickToAddWaypoint ? '🎯 Click Map to Place' : '+ Tap Map Tool'}
+        </button>
+      </div>
 
-          <div>
-            <label className="text-sm text-mars-dust block mb-1">End (Lat, Lon)</label>
-            <input
-              type="text"
-              placeholder="18.5, 77.6"
-              className="w-full px-3 py-2 bg-opace border border-mars-dust/30 rounded text-mars-surface placeholder-mars-dust"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const [lat, lon] = (e.target as HTMLInputElement).value.split(',').map(Number)
-                  if (lat && lon) setEnd({ lat, lon })
-                }
-              }}
-            />
-          </div>
+      {/* Planned Stops List */}
+      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+        {plannedStops.map((stop, idx) => {
+          const isSelected = selectedStop?.id === stop.id
+          const isStartOrEnd = idx === 0 || idx === plannedStops.length - 1
 
-          <div className="flex gap-2">
-            <button
-              onClick={handleCalculateRoute}
-              disabled={!start || !end}
-              className="flex-1 px-4 py-2 bg-mars-surface text-opace rounded hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          return (
+            <div
+              key={`${stop.id}-${idx}`}
+              onClick={() => selectScienceStop(stop)}
+              className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition ${
+                isSelected
+                  ? 'bg-red-950/40 border-red-500/80 text-white'
+                  : 'bg-black/30 border-mars-dust/20 hover:border-mars-dust/40 text-gray-200'
+              }`}
             >
-              Calculate Route
-            </button>
-            {route.length > 0 && (
+              <div className="flex items-center gap-2 overflow-hidden">
+                <span
+                  className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold shrink-0 ${
+                    isStartOrEnd
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-amber-600/80 text-white'
+                  }`}
+                >
+                  {idx === 0 ? 'H' : idx === plannedStops.length - 1 && stop.targetType === 'Hab' ? 'H' : idx}
+                </span>
+
+                <div className="overflow-hidden">
+                  <span className="text-xs font-semibold block truncate">{stop.name}</span>
+                  <span className="text-[10px] text-mars-dust block truncate">
+                    {stop.targetType} · {stop.geologicUnit.split(' ')[0]}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {idx > 0 && idx < plannedStops.length - 1 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      removeScienceStop(stop.id)
+                    }}
+                    className="text-mars-dust hover:text-red-400 p-1 text-xs"
+                    title="Remove stop"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Quick Add Available Jezero Stops */}
+      {availableStopsToAdd.length > 0 && (
+        <div className="pt-2 border-t border-mars-dust/15">
+          <span className="text-[10px] text-mars-dust uppercase tracking-wider block mb-1">
+            Add Known Target:
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {availableStopsToAdd.map((cand) => (
               <button
-                onClick={clearRoute}
-                className="px-3 py-2 text-sm text-mars-dust hover:text-mars-surface transition-colors"
+                key={cand.id}
+                onClick={() => addScienceStop(cand)}
+                className="text-[11px] bg-black/40 hover:bg-black/70 border border-mars-dust/30 px-2 py-0.5 rounded text-mars-surface transition"
               >
-                Clear
+                + {cand.name.split(' ')[0]}
               </button>
-            )}
+            ))}
           </div>
         </div>
       )}
 
-      {route.length > 0 && (
-        <div className="space-y-3">
-          <div className="p-3 bg-mars-shadow/30 rounded-lg">
-            <p className="text-sm text-mars-dust">
-              <span className="text-mars-surface font-semibold">Distance:</span>{' '}
-              {formatDistance(route.reduce((sum, p) => sum + p.distance, 0))}
-            </p>
-            <p className="text-xs text-mars-dust mt-1">
-              Route calculated with terrain hazards
-            </p>
-          </div>
+      {/* Recalculate Button & Route Engine Summary */}
+      <div className="pt-2 border-t border-mars-dust/15 space-y-2">
+        <button
+          onClick={recalculateRoute}
+          className="w-full py-2 px-3 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-semibold text-xs rounded-lg shadow-lg transition active:scale-[0.99] flex items-center justify-center gap-1.5"
+        >
+          <span>⚡ Recalculate A* Hazard-Avoidance Route</span>
+        </button>
 
-          <div className="flex flex-wrap gap-2 text-xs">
-            <span className="px-2 py-1 bg-radiation-low/20 text-radiation-low rounded">
-              Low Radiation
-            </span>
-            <span className="px-2 py-1 bg-radiation-med/20 text-radiation-med rounded">
-              Medium Terrain
-            </span>
-            <span className="px-2 py-1 bg-radiation-high/20 text-radiation-high rounded">
-              High Slope
+        {activeRouteResult && activeRouteResult.hazardCrossings.length > 0 && (
+          <div className="p-2 bg-amber-950/30 border border-amber-500/30 rounded text-[11px] text-amber-200">
+            <span className="font-semibold block">⚠️ Route Engine Advisory:</span>
+            <span>
+              Route auto-diverted around dangerous terrain: {activeRouteResult.hazardCrossings.join(', ')}.
             </span>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

@@ -1,158 +1,145 @@
 import { create } from 'zustand'
+import {
+  NASA_DATA_LAYERS,
+  JEZERO_SCIENCE_STOPS,
+  MISSION_PRESETS,
+  ScienceStop,
+  MissionPreset,
+} from '@/data/jezeroData'
+import {
+  planMultiStopEVARoute,
+  CalculatedRouteResult,
+  RouteWaypoint,
+} from '@/lib/pathfinding'
 
-interface Layer {
+export interface LayerConfig {
+  id: string
   label: string
+  kind: string
+  source: string
+  description: string
   visible: boolean
-  opacity?: number
-  source?: string
-}
-
-interface MapLayerConfig {
-  [key: string]: Layer
-}
-
-interface Waypoint {
-  id: string
-  name: string
-  lat: number
-  lon: number
-  elevation?: number
-  hazard?: {
-    slope?: number
-    radiation?: number
-    rock?: number
-  }
-}
-
-interface Route {
-  id: string
-  name: string
-  waypoints: Waypoint[]
-  distance: number
-  createdAt: Date
+  opacity: number
 }
 
 interface MapState {
-  layers: MapLayerConfig
-  waypoints: Waypoint[]
-  routes: Route[]
-  selectedRoute: string | null
-  selectedSite: string | null
+  layers: Record<string, LayerConfig>
+  activePresetId: string
+  activePreset: MissionPreset | null
+  plannedStops: ScienceStop[]
+  activeRouteResult: CalculatedRouteResult | null
+  selectedStop: ScienceStop | null
+  isClickToAddWaypoint: boolean
 
   // Actions
   toggleLayer: (layerId: string) => void
   setLayerOpacity: (layerId: string, opacity: number) => void
   resetLayers: () => void
-  addWaypoint: (waypoint: Waypoint) => void
-  removeWaypoint: (id: string) => void
-  clearWaypoints: () => void
-  addRoute: (route: Route) => void
-  removeRoute: (id: string) => void
-  clearRoutes: () => void
-  selectSite: (siteId: string) => void
-  selectRoute: (routeId: string) => void
+  loadPresetMission: (presetId: string) => void
+  selectScienceStop: (stop: ScienceStop | null) => void
+  addScienceStop: (stop: ScienceStop) => void
+  removeScienceStop: (stopId: string) => void
+  recalculateRoute: () => void
+  toggleClickToAddMode: () => void
 }
 
-const defaultLayers: MapLayerConfig = {
-  'dem': {
-    label: 'Terrain (DEM)',
-    visible: true,
-    source: 'Cesium Ion Mars DEM',
-  },
-  'ctx': {
-    label: 'MRO Context Imagery',
-    visible: true,
-    opacity: 0.9,
-    source: 'MRO CTX (6m/pixel)',
-  },
-  'hirose': {
-    label: 'HiRISE Detail',
-    visible: false,
-    opacity: 1.0,
-    source: 'MRO HiRISE (0.3m/pixel)',
-  },
-  'themsis': {
-    label: 'THEMIS Thermal',
-    visible: false,
-    opacity: 0.7,
-    source: 'THEMIS IR',
-  },
-  'crism': {
-    label: 'CRISM Spectral',
-    visible: false,
-    opacity: 0.6,
-    source: 'CRISM Mineral Map',
-  },
-  'radiation': {
-    label: 'Radiation Hazard',
-    visible: false,
-    opacity: 0.6,
-    source: 'MAVEN/EPM',
-  },
-  'rovers': {
-    label: 'Rover Traverses',
-    visible: true,
-    opacity: 0.8,
-    source: 'Curiosity/Perseverance tracks',
-  },
-}
+// Initial default route based on Jezero Organics Hunt
+const initialPreset = MISSION_PRESETS[0]
+const initialRoute = planMultiStopEVARoute(initialPreset.stops, initialPreset.name)
 
-export const useMapStore = create<MapState>()((set) => ({
-  layers: defaultLayers,
-  waypoints: [],
-  routes: [],
-  selectedRoute: null,
-  selectedSite: null,
+export const useMapStore = create<MapState>((set, get) => ({
+  layers: { ...NASA_DATA_LAYERS },
+  activePresetId: initialPreset.id,
+  activePreset: initialPreset,
+  plannedStops: [...initialPreset.stops],
+  activeRouteResult: initialRoute,
+  selectedStop: null,
+  isClickToAddWaypoint: false,
 
   toggleLayer: (layerId) =>
-    set((state) => ({
-      layers: {
-        ...state.layers,
-        [layerId]: {
-          ...state.layers[layerId],
-          visible: !state.layers[layerId].visible,
+    set((state) => {
+      const current = state.layers[layerId]
+      if (!current) return state
+      return {
+        layers: {
+          ...state.layers,
+          [layerId]: { ...current, visible: !current.visible },
         },
-      },
-    })),
+      }
+    }),
 
   setLayerOpacity: (layerId, opacity) =>
-    set((state) => ({
-      layers: {
-        ...state.layers,
-        [layerId]: {
-          ...state.layers[layerId],
-          opacity,
+    set((state) => {
+      const current = state.layers[layerId]
+      if (!current) return state
+      return {
+        layers: {
+          ...state.layers,
+          [layerId]: { ...current, opacity },
         },
-      },
+      }
+    }),
+
+  resetLayers: () =>
+    set(() => ({
+      layers: { ...NASA_DATA_LAYERS },
     })),
 
-  resetLayers: () => set({ layers: defaultLayers }),
+  loadPresetMission: (presetId) => {
+    const preset = MISSION_PRESETS.find((p) => p.id === presetId) || MISSION_PRESETS[0]
+    const route = planMultiStopEVARoute(preset.stops, preset.name)
+    set({
+      activePresetId: preset.id,
+      activePreset: preset,
+      plannedStops: [...preset.stops],
+      activeRouteResult: route,
+      selectedStop: null,
+    })
+  },
 
-  selectSite: (siteId) => set({ selectedSite: siteId }),
+  selectScienceStop: (stop) =>
+    set({
+      selectedStop: stop,
+    }),
 
-  selectRoute: (routeId) => set({ selectedRoute: routeId }),
+  addScienceStop: (stop) => {
+    const updatedStops = [...get().plannedStops, stop]
+    const route = planMultiStopEVARoute(updatedStops, 'Custom EVA Traverse')
+    set({
+      plannedStops: updatedStops,
+      activeRouteResult: route,
+      selectedStop: stop,
+      activePresetId: 'custom',
+    })
+  },
 
-  addWaypoint: (waypoint) =>
+  removeScienceStop: (stopId) => {
+    const updatedStops = get().plannedStops.filter((s) => s.id !== stopId)
+    if (updatedStops.length >= 2) {
+      const route = planMultiStopEVARoute(updatedStops, 'Custom EVA Traverse')
+      set({
+        plannedStops: updatedStops,
+        activeRouteResult: route,
+        selectedStop: updatedStops[0] || null,
+      })
+    } else {
+      set({
+        plannedStops: updatedStops,
+        activeRouteResult: null,
+      })
+    }
+  },
+
+  recalculateRoute: () => {
+    const stops = get().plannedStops
+    if (stops.length >= 2) {
+      const route = planMultiStopEVARoute(stops, 'Updated EVA Traverse')
+      set({ activeRouteResult: route })
+    }
+  },
+
+  toggleClickToAddMode: () =>
     set((state) => ({
-      waypoints: [...state.waypoints, waypoint],
+      isClickToAddWaypoint: !state.isClickToAddWaypoint,
     })),
-
-  removeWaypoint: (id) =>
-    set((state) => ({
-      waypoints: state.waypoints.filter((wp) => wp.id !== id),
-    })),
-
-  clearWaypoints: () => set({ waypoints: [] }),
-
-  addRoute: (route) =>
-    set((state) => ({
-      routes: [...state.routes, route],
-    })),
-
-  removeRoute: (id) =>
-    set((state) => ({
-      routes: state.routes.filter((r) => r.id !== id),
-    })),
-
-  clearRoutes: () => set({ routes: [] }),
 }))
