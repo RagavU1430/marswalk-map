@@ -58,12 +58,8 @@ export const MarsThreeViewer: React.FC<MarsThreeViewerProps> = ({
 
     // 1. Scene, Fog & Renderer
     const scene = new THREE.Scene()
-    // Authentic Martian butterscotch/dusty sky transition
-    scene.background = new THREE.Color(0x28120c)
-    const baseFog = new THREE.FogExp2(0x3e1c14, 0.003)
-    scene.fog = baseFog
 
-    const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 2000)
+    const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 3000)
     camera.position.set(0, 110, 180)
 
     const renderer = new THREE.WebGLRenderer({
@@ -75,10 +71,34 @@ export const MarsThreeViewer: React.FC<MarsThreeViewerProps> = ({
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.25
+    renderer.toneMappingExposure = 1.4
     container.appendChild(renderer.domElement)
 
+    // ── Procedural Sky Dome ───────────────────────────────────────────────
+    // Martian sky: dusty butterscotch horizon, pinkish-tan zenith
+    const skyGeo = new THREE.SphereGeometry(1400, 32, 16)
+    skyGeo.scale(-1, 1, 1) // render inside
+    const skyCanvas = document.createElement('canvas')
+    skyCanvas.width = 2; skyCanvas.height = 512
+    const skyCtx = skyCanvas.getContext('2d')!
+    const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 512)
+    skyGrad.addColorStop(0.0,  '#c47a4a') // zenith – dusty pink
+    skyGrad.addColorStop(0.35, '#d9834d') // mid
+    skyGrad.addColorStop(0.65, '#e8955a') // near horizon warm
+    skyGrad.addColorStop(0.85, '#f0a96a') // horizon haze glow
+    skyGrad.addColorStop(1.0,  '#d8814a') // ground bleed
+    skyCtx.fillStyle = skyGrad
+    skyCtx.fillRect(0, 0, 2, 512)
+    const skyTex = new THREE.CanvasTexture(skyCanvas)
+    const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
+    scene.add(new THREE.Mesh(skyGeo, skyMat))
+    scene.background = null
+
+    // Layered fog: near-ground dust + distant atmospheric haze
+    scene.fog = new THREE.FogExp2(0xd48060, 0.0028)
+
     // 2. Orbit Controls
+
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.06
@@ -88,152 +108,289 @@ export const MarsThreeViewer: React.FC<MarsThreeViewerProps> = ({
     controls.target.set(0, 4, 0)
 
     // 3. Martian Atmosphere & Sunlight
-    // Main Sun - low angled, warm Martian solar disk
-    const sunLight = new THREE.DirectionalLight(0xffeed8, 2.8)
-    sunLight.position.set(150, 140, 110)
+    // Main Sun - low angled, warm Martian solar disk (38% of Earth brightness)
+    const sunLight = new THREE.DirectionalLight(0xffd5a0, 2.6)
+    sunLight.position.set(200, 120, 90)
     sunLight.castShadow = true
-    sunLight.shadow.mapSize.width = 2048
-    sunLight.shadow.mapSize.height = 2048
+    sunLight.shadow.mapSize.width = 4096
+    sunLight.shadow.mapSize.height = 4096
     sunLight.shadow.camera.near = 10
-    sunLight.shadow.camera.far = 500
-    sunLight.shadow.camera.left = -160
-    sunLight.shadow.camera.right = 160
-    sunLight.shadow.camera.top = 160
-    sunLight.shadow.camera.bottom = -160
-    sunLight.shadow.bias = -0.0008
+    sunLight.shadow.camera.far = 600
+    sunLight.shadow.camera.left = -200
+    sunLight.shadow.camera.right = 200
+    sunLight.shadow.camera.top = 200
+    sunLight.shadow.camera.bottom = -200
+    sunLight.shadow.bias = -0.0006
+    sunLight.shadow.normalBias = 0.03
     scene.add(sunLight)
 
-    // Sky dome ambient fill
-    const hemiLight = new THREE.HemisphereLight(0xff9f73, 0x3d170d, 1.1)
+    // Martian sky scatter — pinkish-tan hemisphere light
+    const hemiLight = new THREE.HemisphereLight(0xd4845a, 0x3a1510, 1.3)
     scene.add(hemiLight)
 
-    const fillLight = new THREE.DirectionalLight(0xcc6644, 0.9)
-    fillLight.position.set(-100, 50, -80)
+    // Weak bounce fill from warm regolith
+    const fillLight = new THREE.DirectionalLight(0xb85c3a, 0.6)
+    fillLight.position.set(-120, 30, -100)
     scene.add(fillLight)
 
-    // 4. Procedural High-Detail Martian Terrain
-    const terrainSize = 340
-    const terrainSegments = 140
+    // 4. Procedural High-Detail Martian Terrain ─────────────────────────
+    // Fractional Brownian Motion helpers (no external deps)
+    const hash2 = (ix: number, iy: number): number => {
+      let n = ix + iy * 57
+      n = (n << 13) ^ n
+      return 1.0 - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0
+    }
+    const smoothNoise = (x: number, y: number): number => {
+      const ix = Math.floor(x), iy = Math.floor(y)
+      const fx = x - ix, fy = y - iy
+      const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy)
+      return (
+        hash2(ix, iy) * (1 - ux) * (1 - uy) +
+        hash2(ix + 1, iy) * ux * (1 - uy) +
+        hash2(ix, iy + 1) * (1 - ux) * uy +
+        hash2(ix + 1, iy + 1) * ux * uy
+      )
+    }
+    const fbm = (x: number, y: number, octaves: number): number => {
+      let val = 0, amp = 0.5, freq = 1, max = 0
+      for (let o = 0; o < octaves; o++) {
+        val += smoothNoise(x * freq, y * freq) * amp
+        max += amp
+        amp *= 0.52; freq *= 2.1
+      }
+      return val / max
+    }
+    const warpFbm = (x: number, y: number): number => {
+      // Domain-warped FBM for more organic ridges
+      const qx = fbm(x, y, 5)
+      const qy = fbm(x + 5.2, y + 1.3, 5)
+      return fbm(x + 1.7 * qx, y + 1.7 * qy, 6)
+    }
+
+    const terrainSize = 380
+    const terrainSegments = 220   // denser mesh = sharper detail
     const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments)
     terrainGeo.rotateX(-Math.PI / 2)
 
-    // Generate high-fidelity Jezero Delta topography: delta fan + scarp wall + sand dunes
+    // Shared height function used by terrain + rock placement + beacons
+    const getTerrainY = (x: number, z: number): number => {
+      const nx = x / terrainSize * 4.5
+      const nz = z / terrainSize * 4.5
+
+      // ① Large-scale Jezero delta descent (W→E slope)
+      const deltaSlope = -(x / terrainSize) * 20
+
+      // ② Domain-warped FBM for primary topography
+      const primary = (warpFbm(nx + 10, nz + 10) - 0.5) * 36
+
+      // ③ Smaller erosion channels overlaid
+      const erosion = (fbm(nx * 2.8 + 3, nz * 2.8 + 7, 4) - 0.5) * 10
+
+      // ④ Fine-grain aeolian ripples (wind dunes)
+      const dunes = Math.sin(x * 0.18 + z * 0.09) * 1.4
+                  + Math.cos(x * 0.11 - z * 0.14) * 0.8
+
+      // ⑤ Crater depressions
+      const cr1 = Math.sqrt((x - 48) ** 2 + (z + 36) ** 2)
+      const crater1 = cr1 < 28 ? -Math.pow(Math.cos((cr1 / 28) * Math.PI * 0.5), 2) * 7 : 0
+      const cr2 = Math.sqrt((x + 70) ** 2 + (z - 55) ** 2)
+      const crater2 = cr2 < 18 ? -Math.pow(Math.cos((cr2 / 18) * Math.PI * 0.5), 2) * 4.5 : 0
+
+      // ⑥ Delta scarp cliff (prominent geological boundary)
+      const scarp = Math.tanh((x + 20) * 0.08) * 9
+
+      return deltaSlope + primary + erosion + dunes + crater1 + crater2 + scarp
+    }
+
     const pos = terrainGeo.attributes.position
+    const heightCache: Float32Array = new Float32Array(pos.count)
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i)
-      const z = pos.getZ(i)
-
-      // Main Jezero delta fan descent from West (-X) to East (+X)
-      const deltaFan = -(x / terrainSize) * 22
-
-      // Prominent Delta Scarp Cliff (the geological drop-off)
-      const scarpEdge = Math.sin((x + 25) * 0.032) * Math.cos(z * 0.025) * 14
-
-      // Transverse Aeolian Sand Dune ripples (characteristic of Jezero floor)
-      const duneRipples = Math.sin(x * 0.22 + z * 0.12) * 1.1 + Math.cos(x * 0.14 - z * 0.18) * 0.9
-
-      // Crater depressions
-      const craterDist = Math.sqrt((x - 45) ** 2 + (z + 40) ** 2)
-      const smallCrater = craterDist < 26 ? -Math.cos((craterDist / 26) * (Math.PI / 2)) * 6.5 : 0
-
-      const y = deltaFan + scarpEdge + duneRipples + smallCrater
+      const x = pos.getX(i), z = pos.getZ(i)
+      const y = getTerrainY(x, z)
       pos.setY(i, y)
+      heightCache[i] = y
     }
     terrainGeo.computeVertexNormals()
 
-    // High-resolution procedural texture generator for realistic Mars sand & regolith
+    // ── Terrain Texture: 4-layer Mars regolith ───────────────────────────
+    const TEX_SIZE = 2048
     const textureCanvas = document.createElement('canvas')
-    textureCanvas.width = 1024
-    textureCanvas.height = 1024
-    const tCtx = textureCanvas.getContext('2d')
-    if (tCtx) {
-      // Base layer gradient: rusty iron oxide to sedimentary tan
-      const bgGrad = tCtx.createRadialGradient(512, 512, 50, 512, 512, 700)
-      bgGrad.addColorStop(0, '#c75836') // Warm oxidized red
-      bgGrad.addColorStop(0.35, '#a44122') // Standard Martian regolith
-      bgGrad.addColorStop(0.7, '#853118') // Deep basaltic shadow
-      bgGrad.addColorStop(1, '#66220e') // Basalt outcrop
-      tCtx.fillStyle = bgGrad
-      tCtx.fillRect(0, 0, 1024, 1024)
+    textureCanvas.width = TEX_SIZE; textureCanvas.height = TEX_SIZE
+    const tCtx = textureCanvas.getContext('2d')!
 
-      // Layer 2: Windblown ripple striations
-      tCtx.fillStyle = 'rgba(215, 115, 75, 0.18)'
-      for (let s = 0; s < 1024; s += 8) {
-        tCtx.fillRect(0, s + (Math.sin(s * 0.08) * 6), 1024, 3)
-      }
+    // Layer 1: Base iron-oxide regolith
+    const bgGrad = tCtx.createRadialGradient(TEX_SIZE/2, TEX_SIZE/2, 60, TEX_SIZE/2, TEX_SIZE/2, 1100)
+    bgGrad.addColorStop(0.0, '#c86238')
+    bgGrad.addColorStop(0.3, '#b04e28')
+    bgGrad.addColorStop(0.65, '#8c3a1a')
+    bgGrad.addColorStop(1.0,  '#6a2510')
+    tCtx.fillStyle = bgGrad
+    tCtx.fillRect(0, 0, TEX_SIZE, TEX_SIZE)
 
-      // Layer 3: Pebble & sand granule noise
-      const imgData = tCtx.getImageData(0, 0, 1024, 1024)
-      const data = imgData.data
-      for (let p = 0; p < data.length; p += 4) {
-        const noise = (Math.random() - 0.5) * 28
-        data[p] = Math.min(255, Math.max(0, data[p] + noise))
-        data[p + 1] = Math.min(255, Math.max(0, data[p + 1] + noise * 0.7))
-        data[p + 2] = Math.min(255, Math.max(0, data[p + 2] + noise * 0.4))
-      }
-      tCtx.putImageData(imgData, 0, 0)
+    // Layer 2: Lighter dust patches (wind deposits)
+    tCtx.globalAlpha = 0.28
+    for (let i = 0; i < 240; i++) {
+      const cx = Math.random() * TEX_SIZE, cy = Math.random() * TEX_SIZE
+      const r  = 18 + Math.random() * 90
+      const g  = tCtx.createRadialGradient(cx, cy, 0, cx, cy, r)
+      g.addColorStop(0, '#e8a060'); g.addColorStop(1, 'transparent')
+      tCtx.fillStyle = g
+      tCtx.beginPath(); tCtx.ellipse(cx, cy, r, r * (0.4 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2)
+      tCtx.fill()
     }
+
+    // Layer 3: Dark basalt veins / rock outcrops
+    tCtx.globalAlpha = 0.22
+    tCtx.fillStyle = '#3d1a0c'
+    for (let i = 0; i < 60; i++) {
+      const cx = Math.random() * TEX_SIZE, cy = Math.random() * TEX_SIZE
+      const r = 6 + Math.random() * 28
+      tCtx.beginPath(); tCtx.ellipse(cx, cy, r, r * (0.3 + Math.random() * 0.4), Math.random() * Math.PI, 0, Math.PI * 2)
+      tCtx.fill()
+    }
+
+    // Layer 4: Windblown stripe ripples
+    tCtx.globalAlpha = 0.12
+    tCtx.fillStyle = '#d87848'
+    for (let s = 0; s < TEX_SIZE; s += 7) {
+      const offset = Math.sin(s * 0.06) * 14
+      tCtx.fillRect(0, s + offset, TEX_SIZE, 2.5)
+    }
+
+    // Layer 5: Grainy per-pixel stochastic noise for micro-detail
+    tCtx.globalAlpha = 1
+    const imgData = tCtx.getImageData(0, 0, TEX_SIZE, TEX_SIZE)
+    const data = imgData.data
+    for (let p = 0; p < data.length; p += 4) {
+      const n = (Math.random() - 0.5) * 32
+      data[p]   = Math.min(255, Math.max(0, data[p]   + n))
+      data[p+1] = Math.min(255, Math.max(0, data[p+1] + n * 0.65))
+      data[p+2] = Math.min(255, Math.max(0, data[p+2] + n * 0.35))
+    }
+    tCtx.putImageData(imgData, 0, 0)
 
     const marsTexture = new THREE.CanvasTexture(textureCanvas)
     marsTexture.wrapS = THREE.RepeatWrapping
     marsTexture.wrapT = THREE.RepeatWrapping
-    marsTexture.repeat.set(8, 8)
+    marsTexture.repeat.set(10, 10)
+    marsTexture.anisotropy = renderer.capabilities.getMaxAnisotropy()
+
+    // ── Roughness map: dark patches = smoother (fine dust), bright = rough rock ─
+    const roughCanvas = document.createElement('canvas')
+    roughCanvas.width = 512; roughCanvas.height = 512
+    const rCtx = roughCanvas.getContext('2d')!
+    rCtx.fillStyle = '#c0c0c0'
+    rCtx.fillRect(0, 0, 512, 512)
+    for (let p = 0; p < 512 * 512 * 4; p += 4) {
+      const v = 150 + (Math.random() - 0.5) * 70
+      rCtx.fillStyle = `rgb(${v|0},${v|0},${v|0})`
+    }
+    // lighter patches = rougher outcrops
+    for (let i = 0; i < 80; i++) {
+      const cx = Math.random() * 512, cy = Math.random() * 512
+      const gr = rCtx.createRadialGradient(cx, cy, 0, cx, cy, 20 + Math.random() * 40)
+      gr.addColorStop(0, 'rgba(240,240,240,0.9)'); gr.addColorStop(1, 'transparent')
+      rCtx.fillStyle = gr
+      rCtx.beginPath(); rCtx.arc(cx, cy, 40 + Math.random() * 30, 0, Math.PI * 2); rCtx.fill()
+    }
+    const roughMap = new THREE.CanvasTexture(roughCanvas)
+    roughMap.wrapS = THREE.RepeatWrapping; roughMap.wrapT = THREE.RepeatWrapping
+    roughMap.repeat.set(10, 10)
 
     const terrainMat = new THREE.MeshStandardMaterial({
       map: marsTexture,
-      roughness: 0.85,
-      metalness: 0.1,
+      roughnessMap: roughMap,
+      roughness: 0.88,
+      metalness: 0.04,
       flatShading: false,
+      envMapIntensity: 0.4,
     })
     const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat)
     terrainMesh.receiveShadow = true
     scene.add(terrainMesh)
 
-    // 5. Realistic Martian Rock Clusters (properly scaled, shaded & embedded)
-    const rocksGroup = new THREE.Group()
-    const rockMat = new THREE.MeshStandardMaterial({
-      color: 0x5a2d1d,
-      roughness: 0.92,
-      metalness: 0.15,
-      flatShading: true,
+    // ── Dust / Sand Drift Plane (thin translucent layer for shallow dune valleys) ─
+    const driftGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, 1, 1)
+    driftGeo.rotateX(-Math.PI / 2)
+    const driftMat = new THREE.MeshStandardMaterial({
+      color: 0xe8a060,
+      transparent: true,
+      opacity: 0.09,
+      roughness: 1,
+      metalness: 0,
+      depthWrite: false,
     })
+    const driftMesh = new THREE.Mesh(driftGeo, driftMat)
+    driftMesh.position.y = -1.5
+    scene.add(driftMesh)
 
-    // Seeded random helper for natural organic distribution
-    const rng = (s: number) => {
-      const v = Math.sin(s) * 10000
-      return v - Math.floor(v)
-    }
+    // 5. Realistic Martian Rock Clusters ─────────────────────────────────
+    const rocksGroup = new THREE.Group()
 
-    for (let r = 0; r < 90; r++) {
-      // Natural varied boulder geometries
-      const radius = 0.5 + rng(r * 3.1) * 1.8
-      const geo = new THREE.DodecahedronGeometry(radius, 1)
+    // Material palette: 3 rock types (basalt, sedimentary, iron-rich)
+    const rockMaterials = [
+      new THREE.MeshStandardMaterial({ color: 0x4a2214, roughness: 0.95, metalness: 0.08, flatShading: true }), // dark basalt
+      new THREE.MeshStandardMaterial({ color: 0x7a3e22, roughness: 0.88, metalness: 0.05, flatShading: true }), // mid regolith
+      new THREE.MeshStandardMaterial({ color: 0x9a4e2a, roughness: 0.80, metalness: 0.12, flatShading: true }), // iron-rich
+      new THREE.MeshStandardMaterial({ color: 0x3a1a0c, roughness: 0.97, metalness: 0.02, flatShading: true }), // very dark outcrop
+    ]
 
-      // Deform vertices slightly to make organic volcanic rocks
+    const rng = (s: number) => { const v = Math.sin(s) * 10000; return v - Math.floor(v) }
+
+    for (let r = 0; r < 180; r++) {
+      const radius = 0.35 + rng(r * 3.1) * 2.4
+      const geoType = r % 3
+      let geo: THREE.BufferGeometry
+
+      if (geoType === 0) {
+        geo = new THREE.DodecahedronGeometry(radius, r % 2 === 0 ? 1 : 0)
+      } else if (geoType === 1) {
+        // Flattened for sedimentary slabs
+        geo = new THREE.BoxGeometry(radius * (1.4 + rng(r) * 0.8), radius * 0.4, radius * (1.2 + rng(r * 2) * 0.6))
+      } else {
+        geo = new THREE.IcosahedronGeometry(radius, 1)
+      }
+
+      // Deform vertices for organic shapes
       const rPos = geo.attributes.position
       for (let v = 0; v < rPos.count; v++) {
-        const vx = rPos.getX(v)
-        const vy = rPos.getY(v)
-        const vz = rPos.getZ(v)
-        const d = 1 + (rng(v + r) - 0.5) * 0.35
-        rPos.setXYZ(v, vx * d, vy * (d * 0.8), vz * d)
+        const vx = rPos.getX(v), vy = rPos.getY(v), vz = rPos.getZ(v)
+        const d = 1 + (rng(v * 0.7 + r) - 0.5) * 0.42
+        rPos.setXYZ(v, vx * d, vy * (d * 0.75), vz * d)
       }
       geo.computeVertexNormals()
 
-      const rock = new THREE.Mesh(geo, rockMat)
-      const px = (rng(r * 5.7) - 0.5) * (terrainSize * 0.78)
-      const pz = (rng(r * 9.3) - 0.5) * (terrainSize * 0.78)
+      const mat = rockMaterials[r % rockMaterials.length]
+      const rock = new THREE.Mesh(geo, mat)
 
-      // Approximate terrain height at (px, pz)
-      const deltaFan = -(px / terrainSize) * 22
-      const scarpEdge = Math.sin((px + 25) * 0.032) * Math.cos(pz * 0.025) * 14
-      const py = deltaFan + scarpEdge + radius * 0.45
+      const px = (rng(r * 5.7) - 0.5) * (terrainSize * 0.82)
+      const pz = (rng(r * 9.3) - 0.5) * (terrainSize * 0.82)
+      const py = getTerrainY(px, pz) + radius * 0.38
 
       rock.position.set(px, py, pz)
-      rock.rotation.set(rng(r * 2), rng(r * 4), rng(r * 6))
+      rock.rotation.set(rng(r * 2) * Math.PI, rng(r * 4) * Math.PI, rng(r * 6) * 0.8)
       rock.castShadow = true
       rock.receiveShadow = true
       rocksGroup.add(rock)
+    }
+
+    // ── Layered Sedimentary Ridge Outcrops (Jezero delta-characteristic) ─
+    for (let rc = 0; rc < 8; rc++) {
+      const cx = (rng(rc * 13) - 0.5) * terrainSize * 0.6
+      const cz = (rng(rc * 17) - 0.5) * terrainSize * 0.6
+      const baseY = getTerrainY(cx, cz)
+      const layers = 2 + Math.floor(rng(rc * 7) * 4)
+
+      for (let l = 0; l < layers; l++) {
+        const lw = 4 + rng(rc * l + 3) * 8, ld = 1 + rng(rc * l + 7) * 2.5, lh = 0.4 + rng(rc * l + 11) * 0.6
+        const slabGeo = new THREE.BoxGeometry(lw, lh, ld)
+        const slab = new THREE.Mesh(slabGeo, rockMaterials[l % 2 === 0 ? 1 : 3])
+        slab.position.set(cx + (rng(rc + l) - 0.5) * 1.5, baseY + l * (lh + 0.1) + lh / 2, cz)
+        slab.rotation.y = rng(rc + l * 3) * 0.4
+        slab.castShadow = true
+        slab.receiveShadow = true
+        rocksGroup.add(slab)
+      }
     }
     scene.add(rocksGroup)
 
@@ -242,10 +399,7 @@ export const MarsThreeViewer: React.FC<MarsThreeViewerProps> = ({
       const scale = 3200
       const x = (lon - 77.4508) * scale
       const z = -(lat - 18.4447) * scale
-
-      const deltaFan = -(x / terrainSize) * 22
-      const scarpEdge = Math.sin((x + 25) * 0.032) * Math.cos(z * 0.025) * 14
-      const y = deltaFan + scarpEdge + 2.5
+      const y = getTerrainY(x, z) + 2.5
       return new THREE.Vector3(x, y, z)
     }
 
@@ -454,24 +608,42 @@ export const MarsThreeViewer: React.FC<MarsThreeViewerProps> = ({
     }
     scene.add(astronaut)
 
-    // 10. Ambient Dust Particles (Drifting Martian Haze)
-    const dustCount = 800
+    // 10. Martian Dust Suspension ─────────────────────────────────────────
+    // Fine high-altitude dust layer
+    const dustCount = 1800
     const dustGeo = new THREE.BufferGeometry()
     const dustPos = new Float32Array(dustCount * 3)
-    for (let d = 0; d < dustCount * 3; d += 3) {
-      dustPos[d] = (Math.random() - 0.5) * 320
-      dustPos[d + 1] = Math.random() * 60 + 1
-      dustPos[d + 2] = (Math.random() - 0.5) * 320
+    const dustSizes = new Float32Array(dustCount)
+    for (let d = 0; d < dustCount; d++) {
+      dustPos[d * 3]     = (Math.random() - 0.5) * 400
+      dustPos[d * 3 + 1] = Math.random() * 80 + 2
+      dustPos[d * 3 + 2] = (Math.random() - 0.5) * 400
+      dustSizes[d] = 0.6 + Math.random() * 1.8
     }
     dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3))
     const dustMat = new THREE.PointsMaterial({
-      color: 0xdf845f,
-      size: 1.4,
+      color: 0xe09060,
+      size: 1.2,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.5,
+      sizeAttenuation: true,
     })
     const dustMotes = new THREE.Points(dustGeo, dustMat)
     scene.add(dustMotes)
+
+    // Ground-level coarse sand particles (near-surface saltation layer)
+    const sandCount = 600
+    const sandGeo = new THREE.BufferGeometry()
+    const sandPos = new Float32Array(sandCount * 3)
+    for (let d = 0; d < sandCount; d++) {
+      sandPos[d * 3]     = (Math.random() - 0.5) * 180
+      sandPos[d * 3 + 1] = Math.random() * 3.5
+      sandPos[d * 3 + 2] = (Math.random() - 0.5) * 180
+    }
+    sandGeo.setAttribute('position', new THREE.BufferAttribute(sandPos, 3))
+    const sandMat = new THREE.PointsMaterial({ color: 0xc87040, size: 0.6, transparent: true, opacity: 0.7 })
+    const sandMotes = new THREE.Points(sandGeo, sandMat)
+    scene.add(sandMotes)
 
     // 11. Interactive Raycaster (Tap Waypoints)
     const raycaster = new THREE.Raycaster()
@@ -509,13 +681,26 @@ export const MarsThreeViewer: React.FC<MarsThreeViewerProps> = ({
         mesh.position.y += Math.sin(elapsed * 2.5) * 0.02
       })
 
-      // Drift dust motes
+      // Drift dust motes (wind direction: +X)
       const dArr = dustMotes.geometry.attributes.position.array as Float32Array
       for (let d = 0; d < dustCount * 3; d += 3) {
-        dArr[d] += 0.06
-        if (dArr[d] > 160) dArr[d] = -160
+        dArr[d]     += 0.04 + Math.sin(elapsed * 0.3 + dArr[d + 2] * 0.01) * 0.02
+        dArr[d + 1] += Math.sin(elapsed * 0.8 + d) * 0.005  // gentle vertical bob
+        if (dArr[d] > 200) dArr[d] = -200
+        if (dArr[d + 1] > 85) dArr[d + 1] = 2
       }
       dustMotes.geometry.attributes.position.needsUpdate = true
+
+      // Drift ground sand saltation layer (faster, lower)
+      const sArr = sandMotes.geometry.attributes.position.array as Float32Array
+      for (let d = 0; d < sandCount * 3; d += 3) {
+        sArr[d] += 0.09 + Math.random() * 0.04
+        if (sArr[d] > 90) sArr[d] = -90
+      }
+      sandMotes.geometry.attributes.position.needsUpdate = true
+
+      // Pulsing sky haze (opacity breath)
+      dustMat.opacity = 0.42 + Math.sin(elapsed * 0.4) * 0.08
 
       // Walkthrough Animation Logic
       if (isWalkingRef.current && pathCurve) {
@@ -586,6 +771,7 @@ export const MarsThreeViewer: React.FC<MarsThreeViewerProps> = ({
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       cancelAnimationFrame(animId)
       renderer.dispose()
+      marsTexture.dispose(); roughMap.dispose(); skyTex.dispose()
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement)
       }
