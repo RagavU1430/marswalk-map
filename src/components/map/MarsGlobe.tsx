@@ -17,6 +17,12 @@ if (typeof window !== 'undefined') {
 export const MarsGlobe: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Cesium.Viewer | null>(null)
+  // Keep refs to imagery layers so we can show/hide/set opacity
+  const basemapLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const geologicLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const slopeLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const mineralsLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const thermalLayerRef = useRef<Cesium.ImageryLayer | null>(null)
   const [loading, setLoading] = useState(true)
 
   const {
@@ -62,27 +68,60 @@ export const MarsGlobe: React.FC = () => {
     viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#9c3e24')
     viewer.scene.globe.enableLighting = true
 
-    // NASA Mars Trek Viking Color Mosaic (Proxied via Vite dev server to bypass CORS)
-    try {
-      const tileUrl = import.meta.env.DEV
-        ? '/trek-tiles/tiles/Mars/EQ/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm/{z}/{reverseY}/{x}.jpg'
-        : 'https://trek.nasa.gov/tiles/Mars/EQ/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm/{z}/{reverseY}/{x}.jpg'
-
-      const marsImagery = new Cesium.UrlTemplateImageryProvider({
-        url: tileUrl,
-        tilingScheme: new Cesium.GeographicTilingScheme(),
-        maximumLevel: 7,
-      })
-
-      // Silently handle any tile errors to prevent spamming the console
-      marsImagery.errorEvent.addEventListener(() => {
-        // Fallback gracefully to Martian reddish baseColor if a tile is missing
-      })
-
-      viewer.imageryLayers.addImageryProvider(marsImagery)
-    } catch (e) {
-      console.warn('Could not load NASA Mars imagery layer, fallback to base color:', e)
+    const addTileLayer = (
+      urlPath: string,
+      maxLevel = 7,
+      visible = true,
+      opacity = 1.0
+    ): Cesium.ImageryLayer | null => {
+      try {
+        const url = import.meta.env.DEV
+          ? `/trek-tiles/tiles/Mars/EQ/${urlPath}`
+          : `https://trek.nasa.gov/tiles/Mars/EQ/${urlPath}`
+        const provider = new Cesium.UrlTemplateImageryProvider({
+          url,
+          tilingScheme: new Cesium.GeographicTilingScheme(),
+          maximumLevel: maxLevel,
+        })
+        provider.errorEvent.addEventListener(() => {/* silent fallback */})
+        const layer = viewer.imageryLayers.addImageryProvider(provider)
+        layer.show = visible
+        layer.alpha = opacity
+        return layer
+      } catch {
+        return null
+      }
     }
+
+    // ── Layer 1: Viking Color Mosaic basemap ───────────────────────────────
+    basemapLayerRef.current = addTileLayer(
+      'Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm/{z}/{reverseY}/{x}.jpg',
+      7, layers.basemap?.visible ?? true, layers.basemap?.opacity ?? 1.0
+    )
+
+    // ── Layer 2: MOLA Hillshade (slope/topography) ────────────────────────
+    slopeLayerRef.current = addTileLayer(
+      'Mars_HRSC_MOLA_BlendDEM_Global_200mp_v2/1.0.0/default/default028mm/{z}/{reverseY}/{x}.png',
+      6, layers.slope?.visible ?? true, (layers.slope?.opacity ?? 0.7) * 0.55
+    )
+
+    // ── Layer 3: CRISM False-Color Mineral Map ────────────────────────────
+    mineralsLayerRef.current = addTileLayer(
+      'Mars_MRO_CTX_Mosaic_global_6m/1.0.0/default/default028mm/{z}/{reverseY}/{x}.jpg',
+      8, layers.minerals?.visible ?? true, (layers.minerals?.opacity ?? 0.8) * 0.4
+    )
+
+    // ── Layer 4: THEMIS Thermal (day) ─────────────────────────────────────
+    thermalLayerRef.current = addTileLayer(
+      'Mars_MO_THEMIS_DayIR_mosaic_global_100m_v12/1.0.0/default/default028mm/{z}/{reverseY}/{x}.png',
+      6, layers.surface?.visible ?? true, (layers.surface?.opacity ?? 0.7) * 0.45
+    )
+
+    // ── Layer 5: USGS Geologic Map ────────────────────────────────────────
+    geologicLayerRef.current = addTileLayer(
+      'Mars_USGS_Mosaic_global/1.0.0/default/default028mm/{z}/{reverseY}/{x}.png',
+      5, layers.geologic?.visible ?? true, (layers.geologic?.opacity ?? 0.6) * 0.35
+    )
 
     // Fly directly to Jezero Crater Delta Front tactical EVA overview
     viewer.camera.flyTo({
@@ -168,7 +207,34 @@ export const MarsGlobe: React.FC = () => {
     }
   }, [])
 
-  // 2. Render Hazard Zones (Slope, Boulder Field, Dust Sink)
+  // 2. Sync imagery layers to store toggles & opacity sliders
+  useEffect(() => {
+    const applyLayer = (
+      layerRef: React.MutableRefObject<Cesium.ImageryLayer | null>,
+      layerId: string,
+      scale = 1.0
+    ) => {
+      const il = layerRef.current
+      if (!il) return
+      il.show = layers[layerId]?.visible ?? true
+      il.alpha = (layers[layerId]?.opacity ?? 1.0) * scale
+    }
+
+    applyLayer(basemapLayerRef,  'basemap',   1.0)
+    applyLayer(slopeLayerRef,    'slope',     0.55)
+    applyLayer(mineralsLayerRef, 'minerals',  0.40)
+    applyLayer(thermalLayerRef,  'surface',   0.45)
+    applyLayer(geologicLayerRef, 'geologic',  0.35)
+    // Note: weather (MEDA) and radiation (RAD) are shown as entity HUDs, not imagery tiles.
+  }, [
+    layers.basemap?.visible,  layers.basemap?.opacity,
+    layers.slope?.visible,    layers.slope?.opacity,
+    layers.minerals?.visible, layers.minerals?.opacity,
+    layers.surface?.visible,  layers.surface?.opacity,
+    layers.geologic?.visible, layers.geologic?.opacity,
+  ])
+
+  // 3. Render Hazard Zones
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || viewer.isDestroyed()) return
@@ -288,7 +354,100 @@ export const MarsGlobe: React.FC = () => {
     })
   }, [layers.minerals?.visible, layers.minerals?.opacity])
 
-  // 4. Render Active Route Polyline & Waypoints
+  // 5. Weather (MEDA) — show wind direction indicators over Jezero
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || viewer.isDestroyed()) return
+
+    const existing = viewer.entities.values.filter(e => e.id.startsWith('meda-'))
+    existing.forEach(e => viewer.entities.remove(e))
+
+    if (!layers.weather?.visible) return
+
+    // Wind-rose indicators at key positions across Jezero
+    const windStations = [
+      { id: 'jezero-center',  lat: 18.4447, lon: 77.4508, label: 'MEDA: 4.2 m/s SW\n–55°C | 730 Pa' },
+      { id: 'delta-front',    lat: 18.460,  lon: 77.430,  label: 'MEDA: 3.8 m/s SW\n–51°C | 731 Pa' },
+      { id: 'kodiak-butte',   lat: 18.4284, lon: 77.4308, label: 'MEDA: 5.1 m/s W\n–58°C | 729 Pa' },
+    ]
+
+    windStations.forEach(ws => {
+      viewer.entities.add({
+        id: `meda-${ws.id}`,
+        position: Cesium.Cartesian3.fromDegrees(ws.lon, ws.lat, 120),
+        label: {
+          text: ws.label,
+          font: '11px monospace',
+          fillColor: Cesium.Color.fromCssColorString('#7dd3fc'),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scale: (layers.weather?.opacity ?? 1) * 0.95,
+          backgroundColor: new Cesium.Color(0, 0.1, 0.3, 0.75),
+          showBackground: true,
+          backgroundPadding: new Cesium.Cartesian2(6, 4),
+        },
+      })
+    })
+  }, [layers.weather?.visible, layers.weather?.opacity])
+
+  // 6. Radiation (RAD) — heat-map circles showing dose rate zones
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer || viewer.isDestroyed()) return
+
+    const existing = viewer.entities.values.filter(e => e.id.startsWith('rad-'))
+    existing.forEach(e => viewer.entities.remove(e))
+
+    if (!layers.radiation?.visible) return
+
+    const opacity = layers.radiation?.opacity ?? 1.0
+
+    // Radiation dose rate zones (µSv/hr) across the EVA area
+    const radZones = [
+      { id: 'open-plain',   lat: 18.4447, lon: 77.4508, dose: 24.1, r: 0.012 },
+      { id: 'scarp-shadow', lat: 18.455,  lon: 77.420,  dose: 18.6, r: 0.008 },
+      { id: 'high-ground',  lat: 18.428,  lon: 77.448,  dose: 27.3, r: 0.009 },
+    ]
+
+    radZones.forEach(rz => {
+      // Color: green (low) → yellow → red (high)
+      const t = Math.min((rz.dose - 15) / 15, 1)
+      const color = new Cesium.Color(t, 1 - t * 0.7, 0, 0.28 * opacity)
+      const outline = new Cesium.Color(t, 1 - t * 0.7, 0, 0.9)
+
+      viewer.entities.add({
+        id: `rad-zone-${rz.id}`,
+        position: Cesium.Cartesian3.fromDegrees(rz.lon, rz.lat, 10),
+        ellipse: {
+          semiMajorAxis: rz.r * 111000,
+          semiMinorAxis: rz.r * 111000 * 0.85,
+          material: color,
+          outline: true,
+          outlineColor: outline,
+          height: 10,
+        },
+      })
+
+      viewer.entities.add({
+        id: `rad-label-${rz.id}`,
+        position: Cesium.Cartesian3.fromDegrees(rz.lon, rz.lat, 150),
+        label: {
+          text: `☢ ${rz.dose} µSv/hr`,
+          font: 'bold 11px sans-serif',
+          fillColor: new Cesium.Color(1, 0.9 - t * 0.5, 0.1, 1),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scale: opacity * 0.9,
+        },
+      })
+    })
+  }, [layers.radiation?.visible, layers.radiation?.opacity])
+
+  // 7. Render Active Route Polyline & Waypoints
   useEffect(() => {
     const viewer = viewerRef.current
     if (!viewer || viewer.isDestroyed()) return
