@@ -6,6 +6,9 @@
 
 **Pick your science stops. It draws the safest route — with terrain, radiation, and weather context a crew needs.**
 
+### 🔴 [Live Web App: marswalk-map.vercel.app](https://marswalk-map.vercel.app) 🔴
+
+[![Live Demo](https://img.shields.io/badge/Demo-marswalk--map.vercel.app-00f0ff?style=for-the-badge&logo=vercel&logoColor=white)](https://marswalk-map.vercel.app)
 [![NASA Space Apps 2026](https://img.shields.io/badge/NASA%20Space%20Apps-2026-E03C31?style=for-the-badge&logo=nasa&logoColor=white)](https://www.spaceappschallenge.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Three.js](https://img.shields.io/badge/Three.js-r167-black?style=for-the-badge&logo=three.js&logoColor=white)](https://threejs.org/)
@@ -226,3 +229,4 @@ Built for the **[NASA International Space Apps Challenge 2026](https://www.space
 *"The best time to plan your Marswalk was 10 years ago. The second best time is now."*
 
 </div>
+

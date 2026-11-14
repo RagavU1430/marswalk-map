@@ -98,6 +98,11 @@ ntuser.dat.LOG1
 ntuser.dat.LOG2
 ntuser.ini
 
+# Vercel
+.vercel/
+
 # Generated large Mars grid
 data-processing/output/mars_grid.json
 data-processing/data/
+
+.vercel

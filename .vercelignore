@@ -1,0 +1,7 @@
+node_modules
+.git
+.vscode
+data-processing/data
+data-processing/output/mars_grid.json
+dist
+*.log

@@ -75,9 +75,7 @@ export const MarsGlobe: React.FC = () => {
       opacity = 1.0
     ): Cesium.ImageryLayer | null => {
       try {
-        const url = import.meta.env.DEV
-          ? `/trek-tiles/tiles/Mars/EQ/${urlPath}`
-          : `https://trek.nasa.gov/tiles/Mars/EQ/${urlPath}`
+        const url = `/trek-tiles/tiles/Mars/EQ/${urlPath}`
         const provider = new Cesium.UrlTemplateImageryProvider({
           url,
           tilingScheme: new Cesium.GeographicTilingScheme(),
