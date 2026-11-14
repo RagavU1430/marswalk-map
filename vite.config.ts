@@ -26,6 +26,7 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    allowedHosts: 'all',   // ← allows localtunnel / ngrok / any tunnel host
     proxy: {
       '/trek-tiles': {
         target: 'https://trek.nasa.gov',
